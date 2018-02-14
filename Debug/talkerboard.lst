@@ -1,0 +1,743 @@
+ARM GAS  ../part4compiled.s 			page 1
+
+
+   1              	@=====================================================
+   2              	@	Title:	Project 1, Part 1
+   3              	@	Author:	Preston Cazier
+   4              	@	Date:	2017/07/17
+   5              	@	Class:	ECE372 - Summer 2017
+   6              	@-----------------------------------------------------
+   7              	@
+   8              	@	Brief: This part covers step one of project one, in
+   9              	@		which a button is set up to modulo 10 count
+  10              	@
+  11              	@	Detail: This program turns on GPIO1 and set up the
+  12              	@		button on pin 31 as an interupt source.  Each
+  13              	@		time the button is pushed the counter
+  14              	@		decrements.  This is a modulo 10 counter that
+  15              	@		starts at 10 and resets at 0
+  16              	@
+  17              	@-----------------------------------------------------
+  18              	@
+  19              	@	Current
+  20              	@	Version:	201707221010pc
+  21              	@
+  22              	@	Changes:
+  23              	@		- 201707220957pc
+  24              	@		* realized a slightly different implementation of bintoascii where the base address to write to 
+  25              	@		- 201707220943pc
+  26              	@		* moved on after a few hours to flushing out talker_svc
+  27              	@		-201707220315pc
+  28              	@		* got stuck on checking uart interrupts
+  29              	@			coundnt figure out why rxd was throwing an interrupt
+  30              	@		-201707220230pc	
+  31              	@		* noticed i forgot to add counter resets for
+  32              	@			button counter and char pointer, 
+  33              	@			added them into timer_svc and talker_svc respectively 
+  34              	@		-201707220145pc
+  35              	@		* fixed array indexing erros in BINTOASCII
+  36              	@		-201707220105pc
+  37              	@		* test irq_handler, found issues in BINTOASCII indexing
+  38              	@		-201707220037pc
+  39              	@		* filled out timer and uart interrupt checks
+  40              	@		-201707223135pc
+  41              	@		* added sudo code for talker_svc
+  42              	@		-201707212205pc
+  43              	@		* added sudo code for timer_svc
+  44              	@		-201707212140pc
+  45              	@		* corrected mainline erors
+  46              	@		-201707212130pc
+  47              	@		* tested mainline
+  48              	@		-201707211850pc
+  49              	@		* imported BINTOASCII procedure
+  50              	@		-201707211720pc
+  51              	@		* filled out BUTTON_SVC procedure
+  52              	@		-201707211620pc
+  53              	@		* filled out irq_handler
+  54              	@		-201707211545pc
+  55              	@		* added BUTTON_SVC procedure and sudo code
+  56              	@		-201707211510pc
+  57              	@		* added sudo-code to irq_handler
+ARM GAS  ../part4compiled.s 			page 2
+
+
+  58              	@		-201707211425pc
+  59              	@		* added base code to irq_handler
+  60              	@		procedure
+  61              	@		-201707211231pc
+  62              	@		* added sudo-code and initialization
+  63              	@		to mainline
+  64              	@		-201707201600pc
+  65              	@		* added .equ statements containing all
+  66              	@		neccasary register addresses and
+  67              	@		control words
+  68              	@		-201707191300pc =Initial version
+  69              	@		* added common base code and header
+  70              	@
+  71              	@-----------------------------------------------------
+  72              	@
+  73              	@	Algorithm
+  74              	@	***********************
+  75              	@	MAINLINE
+  76              	@		* Setup stacks for supervisor and IRQ mode
+  77              	@		* Turn on clock to GPIO1
+  78              	@		* Initialize INTC - Reset INTC
+  79              	@		* Enable IRQ input by clearing bit 7 in CPSR
+  80              	@
+  81              	@		INTERUPT DIRECTOR
+  82              	@		* save registers to stack
+  83              	@		* check INTC_PENDING for GPIO, UART and TIMER
+  84              	@		* if any one of these is true go to that service
+  85              	@			procedure
+  86              	@		* if none reset INTC Controller
+  87              	@		* order check is UART, TIMER then GPIO
+  88              	@		* order is only semi important, see report
+  89              	@
+  90              	@		TALKER_SVC
+  91              	@		* check interrupt source for ctsn
+  92              	@		* chcek intterupt source for rtx
+  93              	@		* if not both reset and leave
+  94              	@		* if both load address to message to play
+  95              	@		* load offset to get current byte to send
+  96              	@		* if last character reset offset
+  97              	@		* send character
+  98              	@		* if last character turn off uart interupts
+  99              	@
+ 100              	@		BUTTON_SVC
+ 101              	@		* reset irq for the button so that button press can
+ 102              	@			do something again
+ 103              	@		* load counter containing number of button presses
+ 104              	@		* increment that value
+ 105              	@		* store it again
+ 106              	@		* return to mmainline idle loop
+ 107              	@
+ 108              	@		TIMER_SVC
+ 109              	@		* load number button presses
+ 110              	@		* load address of message
+ 111              	@		* load up offset into middle of message
+ 112              	@		* check and deal with number of timer intervals without button press
+ 113              	@		* if 4 or more change message to no song message
+ 114              	@		* if less than 4 make sure message is normal message
+ARM GAS  ../part4compiled.s 			page 3
+
+
+ 115              	@		* find number of hundred by successive subtraction
+ 116              	@		* 100s convert to ascii
+ 117              	@		* find number of tens by successive subtraction
+ 118              	@		* remaining amount is ones value
+ 119              	@		* 100s convert to ascii
+ 120              	@		* 100s convert to ascii
+ 121              	@		* write converted ascci characters to middle of message
+ 122              	@		* rest interrupt for timer
+ 123              	@		* turn on interrupts for uart
+ 124              	@		* return to mainline idle loop
+ 125              	@
+ 126              	@-----------------------------------------------------
+ 127              	@
+ 128              	@	Register Uses
+ 129              	@	(Pattern holds true for mainline, irq handler and)
+ 130              	@	(all procedures, except where stated		    )
+ 131              	@
+ 132              	@	R0  => Used to store current in use base address
+ 133              	@		of important memory mapped register
+ 134              	@	R1  => Used to store control words
+ 135              	@	R2  => Used to store control words, used for calculations
+ 136              	@	R3  => Used to store control words, used for calculations
+ 137              	@	R4  => used for calculations
+ 138              	@	R5  => used for calculations
+ 139              	@	R6  => NOT USED
+ 140              	@	R7  => NOT USED
+ 141              	@	R8  => NOT USED
+ 142              	@	R9  => NOT USED
+ 143              	@	R10 => NOT USED
+ 144              	@	R11 => NOT USED
+ 145              	@	R12 => NOT USED
+ 146              	@	R13 => STACK POINTER
+ 147              	@	R14 => LINK REGISTER
+ 148              	@	R15 => PROGRAM COUNTER
+ 149              	@
+ 150              	@-----------------------------------------------------
+ 151              	@=====================================================
+ 152              	
+ 153              	.global	_start
+ 154              	.global	_irq_handler
+ 155              	
+ 156              	@ CM_PER
+ 157              	.equ		CMP_U4_CLKCTRL		,0x44E00078	@ address of CM_PER_UART5_CLKCTRL		p.1031  write 0x02
+ 158              	.equ 	CMP_GPIO1_CLKCTRL	,0x44E000AC	@ address of CM_PER_GPIO1_CLKCTRL		p.	write 0x02
+ 159              	.equ		CMP_T5_CLKCTRL		,0x44E000EC	@ Address of CM_PER_TIMER5_CLKCTRL		p.	write px02
+ 160              	.equ		PRCMCLKSEL_T5		,0x44E00518	@ address of PRCM_CLKSEL_TIMER5	p.1147	write	0x02
+ 161              	@ INTC
+ 162              	.equ		INTC_SYSCONFIG		,0x48200010	@ address of INTC_SYSCONFIG	p.538	write 0x00004000
+ 163              	.equ 	INTC_MIR1_CLEAR	,0x482000A8	@ address of INTC_MIR1_CLEAR	p.558	write 0x00002000
+ 164              	.equ		INTC_U4_UNMASK		,0x00002000	@ Value to Unmask Interrupts from Timer5 INT# 45
+ 165              	.equ		INTC_MIR2_CLEAR	,0x482000C8	@ address of INTC_MIR2_CLEAR	p.566	read 0x20000000
+ 166              	.equ		INTC_T5_UNMASKWORD	,0x20000000	@ Value to Unmask Interrupts from Timer5 INT# 93
+ 167              	.equ 	INTC_MIR3_CLEAR	,0x482000E8	@ address of INTC_MIR3_CLEAR	p.574	read 0x00000004
+ 168              	.equ		INTC_GPIO1_UNMASK	,0x00000004	@ Value to Unmask Interrupts from Timer5 INT# 98
+ 169              	.equ 	INTC_PENDING_IRQ1	,0x482000B8	@ address of INTC_PENDING_IRQ1	p.562	read 0x00002000
+ 170              	.equ 	INTC_PENDING_IRQ3	,0x482000F8	@ address of INTC_PENDING_IRQ2	p.570	read 0x20000000
+ 171              	.equ		INTC_PENDING_IRQ2	,0x482000D8	@ address of INTC_PENDING_IRQ3	p.578	read 0x00000004
+ARM GAS  ../part4compiled.s 			page 4
+
+
+ 172              	.equ 	INTC_CONTROL		,0x48200048	@ address of INTC_CONTROL		p.542	read 0x01
+ 173              	.equ 	INTC_CTRL_RESET	,0x01		@ p.542, pin1- a value of 1 resets to allow new IRQ generation
+ 174              	@ GPIO1
+ 175              	.equ 	GPIO1_FALLINGDETECT	,0x4804C14C	@ address of GPIO1_FALLINGDETECT	p.4527
+ 176              	.equ 	BUTTON_PIN		,0x80000000	@ GPIO1 pin that button is attached to BBB manual p. 83
+ 177              	.equ 	GPIO1_IRQSTATUSSET	,0x4804C034	@ address of GPIO1_IRQSTATUSSET	p.4522
+ 178              	.equ 	GPIO1_SYSCONFIG	,0x4804C010	@ address of GPIO1_SYSCONFIG		p.4519
+ 179              	.equ 	GPIO1_IRQSTATUS	,0x4804C02C	@ address of GPIO1_IRQSTATUS		p.4521
+ 180              	@ TIMER5
+ 181              	.equ		T5_RESET			,0x48046010	@ address of T5_RESET		p.4077
+ 182              	.equ		T5_IRQES			,0x4804602C	@ address of T5_IRQENABLESET	p.4081
+ 183              	.equ		T5_TCRR			,0x48046040	@ address of T5_TCRR		p.4085
+ 184              	.equ		T5_TLDR			,0x4804603C	@ address of T5_TLDR		p.4085
+ 185              	.equ		T5_TCLR			,0x48046038	@ address of T5_TCLR		p.4083
+ 186              	.equ		T5_IRQSTATUS		,0x48046028	@ address of T5_IRQSTATUS	p.4080
+ 187              	.equ		T5_CLKRESETVAL		,0x01		@ 
+ 188              	.equ		T5_STARTVAL		,0x01		@ bit 1 turns on autoreload, bit 0 starts
+ 189              	@ UART5
+ 190              	.equ		U4_RXD			,0x44E10870	@ address of U4_RXD		p.1278	write 0x04
+ 191              	.equ		U4_TXD			,0x44E10874	@ address of U4_TXD		p.1278	write 0x24 
+ 192              	.equ		U4_CTSn			,0x44E108D0	@ address of U4_CTSn	p.1278	write 0x26
+ 193              	.equ		U4_RTSn			,0x44E108D4	@ address of U4_RTSn	p.1278	write 0x06
+ 194              	.equ		MODE6			,0x06		@ control word to set to mode6	p.bbb83
+ 195              	.equ		U4_LCR			,0x481A800C	@ UART5_LINE_CONTROL_REGISTER	p.4033	write 0x03, 0x83, 0xBF
+ 196              	.equ		CONFIG_MODEA		,0x83		@ write to LCR, info gathered from table 19-39
+ 197              	.equ		OP_MODE			,0x03		@ write to LCR, info gathered from table 19-39
+ 198              	.equ		U4_DHL			,0x481A8004 	@ address of UART5_DIVISOR_LOW_LATCH		p.4054	write 0x00
+ 199              	.equ		DHL_WORD			,0x00		@ info gathered from table 19-25, p.3994
+ 200              	.equ		U4_DLL			,0x481A8000	@ address of UART5_DIVISOR_HIGH_LATCH		p.4054	write 0x4E
+ 201              	.equ		DLL_WORD			,0x1A		@ info gathered from table 19-25, p.3994
+ 202              	.equ		MDR1				,0x481A8020	@ address of UART5_MODE_DEFINTION_REGISTER1	p.4034	write 0x00
+ 203              	.equ		MDR1_WORD			,0x00		@ write to MDR1, info gathered from p.4034
+ 204              	.equ		U4_IER			,0x481A8004	@ address of UART5_INTERRUPT_ENABLE			p.4026
+ 205              	.equ		IER_U4_WORD		,0x0A		@ bit3 is modemstsit, bit1 is thrit		p.4026
+ 206              	.equ		U4_FCR			,0x481A8008	@ address of UART5_FIFO_CONTROL_REGISTER	p.4032
+ 207              	.equ		U4_FCR_WORD		,0x06		@ bit2 TX_FIFO_CLEAR, bit1 RX_FIFO_CLEAR, bit 0 FIFO_EN  p.4032 
+ 208              	.equ		U4_IIR			,0x481A8008	@ UART5_INTERRUPT_IDENTIFICATION_REGISTER	p.4029
+ 209              	.equ		U4_RHR			,0x481A8000	@ reciever holding register, MUST BE IN OPERATION MODE	p.4025
+ 210              	.equ		U4_THR			,0x481A8000	@ transmit holding register, MUST BE IN OPERATION MODE	p.4025
+ 211              	.equ		U4_MSR			,0x481A8018	@ uart5 modum status register		p.4038	0x
+ 212              	.equ		U4_LSR			,0x481A8014	@ UART5_LINE_STATUS_REGISTER		p.4035	0x
+ 213              	.equ		U4_SCR			,0x481A8040	@ uart4 supplementary control register
+ 214              	@ General values
+ 215              	.equ		FIFTEENSEC		,0xFFF8ACFF	@ value to set timers for 15s
+ 216              	.equ		RESET			,0x02		@ genreal value used by most register to reset them
+ 217              	.equ		message_length 	,0x2A		@ 
+ 218              	.equ		middle_of_message_pointer ,0x12	@ 
+ 219              	
+ 220              	@====================================================
+ 221              	@	MAINLINE
+ 222              	@=====================================================
+ 223              	_start:
+ 224              	@ set up stack_svc
+ 225 0000 B8D39FE5 		ldr		r13, =STACK_SVC			@ Setup Supervisor Stack
+ 226 0004 01DA8DE2 		add		r13, r13, #0x1000			@ Set top of stack
+ 227 0008 120002F1 		cps		#0x12					@ Go to IRQ Mode
+ 228 000c B0D39FE5 		ldr		r13, =STACK_IRQ			@ Setup IRQ Stack
+ARM GAS  ../part4compiled.s 			page 5
+
+
+ 229 0010 01DA8DE2 		add		r13, r13, #0x1000			@ Set top of stack
+ 230 0014 130002F1 		cps		#0x13					@ Return to Supervisor Mode
+ 231              	@----------------------------------------------------------------------------
+ 232              	@ turn on CM_PER_UART5_CLKCTRL
+ 233 0018 A8039FE5 		ldr		r0, =CMP_U4_CLKCTRL			@ load address of CM_PER_UART4_CLKCTRL
+ 234 001c 0210A0E3 		mov		r1, #RESET				@ value to turn on clk to UART4
+ 235 0020 001080E5 		str		r1, [r0]					@ write to register to turn on UART4
+ 236              	@ turn on GPIO1
+ 237 0024 A0039FE5 		ldr		r0, =CMP_GPIO1_CLKCTRL		@ Base address of CM_PER_GPIO1_CLKCNTL
+ 238 0028 0210A0E3 		mov		r1, #RESET				@ control word to enable clock
+ 239 002c 001080E5 		str		r1,[r0]					@ write back to enable clock
+ 240              	@ turn on clock module to timer5 and set frequency
+ 241 0030 98039FE5 		ldr		r0, =CMP_T5_CLKCTRL			@ load CM_PER_TIMER5_CLKCTRL register
+ 242 0034 0210A0E3 		mov		r1, #RESET				@ load reset control word
+ 243 0038 001080E5 		str		r1, [r0]					@ store reset in CM_PER_TIMER5_CLKCTRL
+ 244 003c 90039FE5 		ldr		r0, =PRCMCLKSEL_T5			@ ADDRESS OF PRCMCLKSEL_TIMER5
+ 245 0040 0210A0E3 		mov		r1, #RESET				@ load reset control word, set frequency to 
+ 246 0044 001080E5 		str		r1,[r0]					@ write to register to turn on PRCMCLKSEL
+ 247              	@---------------------------------------------------------------------------
+ 248              	@ intialize Interrupt Controller (INTC)
+ 249 0048 88039FE5 		ldr		r0, =INTC_SYSCONFIG			@ load address of INTC_SYSCONFIG
+ 250 004c 0210A0E3 		mov		r1, #RESET				@ load value to reset INTC
+ 251 0050 001080E5 		str		r1, [r0]					@ write back to INTC_SYSCONFIG
+ 252              	@ initialize INTC for UART4
+ 253 0054 80039FE5 		ldr		r0, =INTC_MIR1_CLEAR		@ load address of INTC_MIR1_CLEAR
+ 254 0058 021AA0E3 		ldr		r1, =INTC_U4_UNMASK			@ load word to turn on UART5 interrupt in INTC
+ 255 005c 001080E5 		str		r1, [r0]					@ write to INTC_MIR1_CLEAR to turn on
+ 256              	@ turn on timer 5 interrupt in INTC
+ 257 0060 78039FE5 		ldr		r0, =INTC_MIR2_CLEAR		@ load address of INTC_MIR_CLEAR2
+ 258 0064 0212A0E3 		mov		r1, #INTC_T5_UNMASKWORD		@ load timer5 INTC unmask value
+ 259 0068 001080E5 		str		r1, [r0]					@ write unmask word to INTC_MIR_CLEAR2
+ 260              	@ turn on GPIO1 interrupt in INTC
+ 261 006c 70039FE5 		ldr		r0, =INTC_MIR3_CLEAR		@ address of INTC_MIR3_CLEAR 
+ 262 0070 0410A0E3 		mov		r1, #0x04					@ value to unmask INTC INT 98, GPIOINT1A
+ 263 0074 001080E5 		str		r1, [r0]					@ write to INTC_MIR_CLEAR3
+ 264              	@---------------------------------------------------------------------------
+ 265              	@ set mode for lcd_data8 to map to uart4_TXD
+ 266 0078 68039FE5 		ldr		r0, =U4_TXD				@ load address of lcd_data8
+ 267 007c 001090E5 		ldr		r1, [r0]				@ read register contents
+ 268 0080 0720E0E3 		ldr		r2, =0xfffffff8			@ load and mask
+ 269 0084 021001E0 		and		r1, r1, r2				@ modify to clear mode
+ 270 0088 0620A0E3 		mov		r2, #MODE6				@ load word to set to mode4 with output
+ 271 008c 021081E1 		orr		r1, r1, r2				@ modify to set mode
+ 272 0090 001080E5 		str		r1, [r0]					@ write to change mode
+ 273              	@ set mode for lcd_data8 to map to uart4_RXD
+ 274 0094 50039FE5 		ldr		r0, =U4_RXD				@ load address of lcd_data9 
+ 275 0098 001090E5 		ldr		r1, [r0]				@ read register contents
+ 276 009c 0720E0E3 		ldr		r2, =0xfffffff8			@ load nand mask
+ 277 00a0 021001E0 		and		r1, r1, r2				@ modify to clear mode
+ 278 00a4 0620A0E3 		mov		r2, #MODE6				@ load word to set to mode4 with output
+ 279 00a8 021081E1 		orr		r1, r1, r2				@ modify to set mode
+ 280 00ac 001080E5 		str		r1, [r0]					@ write to change mode
+ 281              	@ set mode for lcd_data8 to map to uart4_CTSn
+ 282 00b0 38039FE5 		ldr		r0, =U4_CTSn				@ load address of lcd_data14
+ 283 00b4 001090E5 		ldr		r1, [r0]				@ read register contents
+ 284 00b8 0720E0E3 		ldr		r2, =0xfffffff8			@ load nand mask
+ 285 00bc 021001E0 		and		r1, r1, r2				@ modify to clear mode
+ARM GAS  ../part4compiled.s 			page 6
+
+
+ 286 00c0 0620A0E3 		mov		r2, #MODE6				@ load word to set to mode4 with output
+ 287 00c4 021081E1 		orr		r1, r1, r2				@ modify to set mode
+ 288 00c8 001080E5 		str		r1, [r0]					@ write to change mode
+ 289              	@ set mode for lcd_data8 to map to uart4_RTSn
+ 290 00cc 20039FE5 		ldr		r0, =U4_RTSn				@ load address of lcd_data15
+ 291 00d0 001090E5 		ldr		r1, [r0]				@ read register contents
+ 292 00d4 0720E0E3 		ldr		r2, =0xfffffff8			@ load nand mask
+ 293 00d8 021001E0 		and		r1, r1, r2				@ modify to clear mode
+ 294 00dc 0620A0E3 		mov		r2, #MODE6				@ load word to set to mode4 with output
+ 295 00e0 021081E1 		orr		r1, r1, r2				@ modify to set mode
+ 296 00e4 001080E5 		str		r1, [r0]					@ write to change mode
+ 297              	@----------------------------------------------------------------------------
+ 298              	@ change uart to configuration mode a
+ 299 00e8 08039FE5 		ldr		r0, =U4_LCR				@ load uart5 line control register
+ 300 00ec 8310A0E3 		mov		r1, #CONFIG_MODEA			@ load word to set lcr to configuration mode 1
+ 301 00f0 001080E5 		str		r1, [r0]					@ write to change mode
+ 302              	@ set uart5 divisor high and low latches for desired baud rate 
+ 303 00f4 00039FE5 		ldr		r0, =U4_DHL				@ load address of divisor high latch
+ 304 00f8 0010A0E3 		mov		r1, #DHL_WORD				@ load value to be MSB of baud rate divisor 
+ 305 00fc 001080E5 		str		r1, [r0]					@ write to set MSB
+ 306 0100 F8029FE5 		ldr		r0, =U4_DLL				@ load address of divisor low latch
+ 307 0104 1A10A0E3 		mov		r1, #DLL_WORD				@ load value to be LSB of baud rate divisor
+ 308 0108 001080E5 		str		r1, [r0]					@ write to set LSB
+ 309              	@ set UART5_MDR1 to 16x divisor mode to achieve desired baud rate
+ 310 010c F0029FE5 		ldr		r0, =MDR1					@ load address of UART5 mode definition register 1
+ 311 0110 0010A0E3 		mov		r1, #MDR1_WORD				@ load value to change mdr1 to 16x mode
+ 312 0114 001080E5 		str		r1, [r0]					@ write to set MDR1 to 16x mode
+ 313              	@ change UART5 to operation mode
+ 314 0118 D8029FE5 		ldr		r0, =U4_LCR				@ load uart5 line control register
+ 315 011c 0310A0E3 		mov		r1, #OP_MODE				@ load word to set lcr to operation mode
+ 316 0120 001080E5 		str		r1, [r0]					@ write to change mode
+ 317              	@ set UART5 to generate 2 types of interrupts
+ 318 0124 D0029FE5 		ldr		r0, =U4_IER				@ load address for UART5_INTERRUPT_ENABLE_REGISTER
+ 319 0128 0010A0E3 		mov		r1, #0x00					@ load word to turn on interrupts
+ 320 012c 001080E5 		str		r1, [r0]					@ write to turn on THR and MODEM interrupts
+ 321              	@ adjust FIFO settings
+ 322 0130 D0029FE5 		ldr		r0, =U4_FCR				@ load fifo control address
+ 323 0134 0610A0E3 		mov		r1, #U4_FCR_WORD			@ load word to reset txd, rxd and disable fifo
+ 324 0138 001080E5 		str		r1, [r0]					@ write to reset and disable fifo
+ 325              	@---------------------------------------------------------------------------------
+ 326              	@ initialize GPIO1
+ 327 013c C8029FE5 		ldr		r0, =GPIO1_SYSCONFIG		@ load address of GPIO1 Sysconfig register
+ 328 0140 0210A0E3 		mov		r1, #RESET				@ load byte to reset GPIO1
+ 329 0144 001080E5 		str		r1, [r0]					@ write byte to reset GPIO1
+ 330              	@ enable button as interupt source
+ 331 0148 C0029FE5 		ldr		r0, =GPIO1_FALLINGDETECT		@ base address of GPIO1 control registers
+ 332 014c 0211A0E3 		mov		r1, #BUTTON_PIN			@ control word to turn on bit 31
+ 333 0150 002090E5 		ldr		r2,[r0]					@ read from GPIO1_FALLINGDETECT
+ 334 0154 022081E1 		orr		r2, r1, r2				@ modify so that bit 31 gets turned on, w/o affecting other pins
+ 335 0158 002080E5 		str		r2, [r0]					@ write back to GPIO1_FALLINGDETECT
+ 336 015c B0029FE5 		ldr		r0, =GPIO1_IRQSTATUSSET		@ load address of GPIO1_IRQSTATUSSET0
+ 337 0160 001080E5 		str		r1, [r0]					@ write control word to GPIO1_IRQSTATUS_SET_0, turn on gpio irq
+ 338              	@--------------------------------------------------------------
+ 339              	@ TIMER REGISTER FOR COUNTER BASE OF TIMER 4 IS 48046000
+ 340 0164 AC029FE5 		ldr		r0, =T5_RESET				@ ADDRESS OF RESETTING CLOCK
+ 341 0168 0110A0E3 		mov		r1, #T5_CLKRESETVAL			@ VALUE TO RESET CLOCK
+ 342 016c 001080E5 		str		r1, [r0]					@ RESET CLOCK
+ARM GAS  ../part4compiled.s 			page 7
+
+
+ 343 0170 A4029FE5 		ldr		r0, =T5_IRQES				@ ADDRES FOR IRQENABLE_SET
+ 344 0174 0210A0E3 		mov		r1, #RESET				@ SET VALUE TO SEND INTERRUPT ON OVERFLOW
+ 345 0178 001080E5 		str		r1, [r0]					@ TURN ON IRQ ENABLE OVERFLOW EVENTS
+ 346              	@ WRITE 1S TO TCRR(#0X40) AND TLDR(#0X3C)
+ 347 017c 9C129FE5 		ldr		r1, =FIFTEENSEC			@ COUTNER OFFSET FOR 1 SEC
+ 348 0180 9C029FE5 		ldr		r0, =T5_TLDR				@ RELOAD COUNTER ADDRESS (TLDR)
+ 349 0184 001080E5 		str		r1, [r0]					@ LOAD COUNTER WITH NUMBER
+ 350 0188 98029FE5 		ldr		r0, =T5_TCRR				@ ADDRESS FOR COUNT REGISTER (TCRR)
+ 351 018c 001080E5 		str		r1, [r0]					@ STORE VALUE TO TCRR
+ 352              	@--------------------------------------------------------------
+ 353              	@ enable irq in cspr
+ 354 0190 00100FE1 		mrs		r1, CPSR					@ copy CPSR
+ 355 0194 8010C1E3 		bic		r1, #0x80					@ clear bit 7
+ 356 0198 01F021E1 		msr		CPSR_c, r1				@ write back to CPSR
+ 357              	@--------------------------------------------------------------
+ 358              	@ START TIMER AND SET AUTO RELOAD
+ 359 019c 88029FE5 		ldr		r0, =T5_TCLR				@ ADDRESS OF TCLR REGISTER
+ 360 01a0 0110A0E3 		mov		r1, #0x01 			@ LOAD VALUE TO AUTORELOAD
+ 361 01a4 001080E5 		str		r1,[r0]					@ STORE IT ---->HERE THE TIMER IS SET AND ON
+ 362              		
+ 363              	@ wait for interrupt
+ 364 01a8 00F020E3 	idleloop:	nop
+ 365 01ac FDFFFFEA 		b		idleloop
+ 366              	@=====================================================
+ 367              	
+ 368              	
+ 369              	@=====================================================
+ 370              	@	IRQ HANDLER
+ 371              	@=====================================================
+ 372              	_irq_handler:
+ 373              	@save registers to stack and check irq source
+ 374 01b0 3F402DE9 		stmfd	sp!, {r0-r5, lr}			@ push registers on the stack
+ 375 01b4 74029FE5 		ldr		r0, =INTC_PENDING_IRQ1		@ load INTC_PENDING_IRQ1 register
+ 376 01b8 001090E5 		ldr		r1, [r0]					@ load value from INTC_PENDING_IRQ1
+ 377 01bc 020A11E3 		tst		r1, #0x00002000			@ check to see if interrupt from uart
+ 378 01c0 0C00001A 		bne		talker_svc				@ if not, go to modulo10count
+ 379 01c4 68029FE5 		ldr		r0, =INTC_PENDING_IRQ2		@ load INTC_PENDING_IRQ2 register
+ 380 01c8 001090E5 		ldr		r1, [r0]					@ load value from INTC_PENDING_IRQ2
+ 381 01cc 020211E3 		tst		r1, #0x20000000			@ check to see if interrupt from clock
+ 382 01d0 4A00001A 		bne		timer_svc					@ if not, go to modulo10count
+ 383 01d4 5C029FE5 		ldr		r0, =INTC_PENDING_IRQ3		@ load INTC_PENDING_IRQ3 register
+ 384 01d8 001090E5 		ldr		r1, [r0]					@ load value from INTC_PENDING_IRQ3
+ 385 01dc 040011E3 		tst		r1, #0x00000004			@ check to see if interrupt from gpio
+ 386 01e0 3900001A 		bne		button_svc				@ if it was go button_svc
+ 387              	backtowait:
+ 388 01e4 50029FE5 		ldr		r0, =INTC_CONTROL			@ address of INTC_Control Register
+ 389 01e8 0110A0E3 		mov		r1, #0x01					@ value to clear bit 0
+ 390 01ec 001080E5 		str		r1, [r0]					@ write to INTC_Control Register
+ 391 01f0 3F40BDE8 		ldmfd	sp!, {r0-r5,lr}			@ restore registers
+ 392 01f4 04F05EE2 		subs		pc, lr, #4				@ return from IRQ Handler
+ 393              	@=====================================================
+ 394              	
+ 395              	
+ 396              	@=====================================================
+ 397              	@	TALKER_SVC
+ 398              	@=====================================================
+ 399              	talker_svc:
+ARM GAS  ../part4compiled.s 			page 8
+
+
+ 400              	@ load up UART4 MSR interrupt vector
+ 401 01f8 40029FE5 		ldr		r0, =U4_MSR				@ load address of modem status register
+ 402 01fc 001090E5 		ldr		r1, [r0]					@ load MSR into r1 to be checked
+ 403              	@ grab the desired bit to check
+ 404 0200 1020A0E3 		mov		r2, #0x10					@ load bit to check
+ 405 0204 021001E0 		and		r1, r1, r2				@ use bit to check as a mask
+ 406              	@ test the interrupt and deal with the result
+ 407 0208 020011E1 		tst		r1, r2					@ check to see if CTS == 1 
+ 408 020c 0600001A 		bne		clearedtosend				@ if CTS is 1 then go to clearedtosend
+ 409 0210 2C029FE5 		ldr		r0, =U4_LSR				@ else load address of line status register
+ 410 0214 001090E5 		ldr		r1, [r0]					@ load value of LSR
+ 411 0218 2020A0E3 		mov		r2, #0x20					@ load bit to check
+ 412 021c 021001E0 		and		r1, r1, r2				@ use bit to check as a mask
+ 413 0220 200011E3 		tst		r1, #0x20					@ check to see if THR == 1
+ 414 0224 EEFFFF0A 		beq		backtowait				@ if thr is not 1 return to idle loop
+ 415 0228 1100001A 		bne		end_talker_svc				@ else turn off interrupts before returning
+ 416              	clearedtosend:
+ 417              	@ get bit 5 from LSR to test
+ 418 022c 10029FE5 		ldr		r0, =U4_LSR				@ else load address of line status register
+ 419 0230 001090E5 		ldr		r1, [r0]					@ load value of LSR
+ 420 0234 2020A0E3 		mov		r2, #0x20					@ load bit to check
+ 421 0238 021001E0 		and		r1, r1, r2				@ use bit to check as a mask
+ 422              	@ test lsr bit 5 and do something based on result
+ 423 023c 200011E3 		tst		r1, #0x20					@ check to see if THR == 1
+ 424 0240 0B00000A 		beq		end_talker_svc				@ if not, turn off interrupts before returning
+ 425              	@ begin seding process
+ 426 0244 FC019FE5 		ldr		r0, =messagetoplayaddress	@ get address of the place where message to play address is
+ 427 0248 001090E5 		ldr		r1, [r0]					@ load message to play address
+ 428 024c F8019FE5 		ldr		r0, =char_pointer			@ load the character pointer to get to current spot in message
+ 429 0250 002090E5 		ldr		r2, [r0]					@ load pointer value
+ 430 0254 0240D1E7 		ldrb		r4, [r1, r2]			@ load byte stored in address of message at base of address + 
+ 431              										@ current pointer value, this gives an actual byte address
+ 432 0258 012082E2 		add		r2, r2, #1				@ increment current pointer to help with addressing bytes 
+ 433              										@ in the message
+ 434 025c 002080E5 		str		r2, [r0]
+ 435 0260 98019FE5 		ldr		r0, =U4_THR				@ load address of uart4 transmit holding register
+ 436 0264 004080E5 		str		r4, [r0]					@ store ascii byte in transmit holding register
+ 437 0268 2A30A0E3 		ldr		r3, =message_length			@ load message length to get index of last char
+ 438 026c 030052E1 		cmp		r2, r3					@ check to see if char pointer is larger than last index
+ 439 0270 0300000A 		beq		reset_section
+ 440              	@continue to next char section
+ 441              	end_talker_svc:
+ 442 0274 80019FE5 		ldr		r0, =U4_IER				@ load address of UART4_INTERUPT_ENABLE_REGISTER
+ 443 0278 0A10A0E3 		mov		r1, #0x0A					@ move value to clear irq status of UART4
+ 444 027c 001080E5 		str		r1, [r0]					@ write to clear current irq status
+ 445 0280 D7FFFFEA 		b		backtowait
+ 446              	@ reset section
+ 447              	reset_section:
+ 448 0284 C0019FE5 		ldr		r0, =char_pointer			@ load the character pointer to get to current spot in message
+ 449 0288 0010A0E3 		mov		r1, #0x00					@ if char pointer is greater than last index, ie points off 
+ 450              										@  end of string, then reset
+ 451 028c 001080E5 		str		r1, [r0]					@ store character pointer for later use
+ 452 0290 84019FE5 		ldr		r0, =T5_IRQES
+ 453 0294 0210A0E3 		mov		r1, #0x02
+ 454 0298 001080E5 		str		r1, [r0]
+ 455 029c 7C119FE5 		ldr		r1, =FIFTEENSEC			@ COUTNER OFFSET FOR 1 SEC
+ 456 02a0 7C019FE5 		ldr		r0, =T5_TLDR				@ RELOAD COUNTER ADDRESS (TLDR)
+ARM GAS  ../part4compiled.s 			page 9
+
+
+ 457 02a4 001080E5 		str		r1, [r0]					@ LOAD COUNTER WITH NUMBER
+ 458 02a8 78019FE5 		ldr		r0, =T5_TCRR				@ ADDRESS FOR COUNT REGISTER (TCRR)
+ 459 02ac 001080E5 		str		r1, [r0]					@ STORE VALUE TO TCRR
+ 460 02b0 74019FE5 		ldr		r0, =T5_TCLR			@ load timer control register
+ 461 02b4 0110A0E3 		mov		r1, #0x01				@ load control word to start timer
+ 462 02b8 001080E5 		str		r1, [r0]				@ write to register to start timer
+ 463 02bc 38019FE5 		ldr		r0, =U4_IER				@ load address of UART4_INTERUPT_ENABLE_REGISTER
+ 464 02c0 0010A0E3 		mov		r1, #0x00					@ move value to clear irq status of UART4
+ 465 02c4 001080E5 		str		r1, [r0]					@ write to clear current irq status
+ 466 02c8 C5FFFF1A 		bne		backtowait				@ since flags still set, skip reseting irq b/c message is done
+ 467              										@ being sent
+ 468              	@=====================================================
+ 469              	
+ 470              	
+ 471              	
+ 472              	
+ 473              	
+ 474              	
+ 475              	@=====================================================
+ 476              	@	BUTTON_SVC
+ 477              	@=====================================================
+ 478              	button_svc:
+ 479 02cc 7C019FE5 		ldr		r0, =GPIO1_IRQSTATUS		@ get address of GPIO1_IRQSTATUS register
+ 480 02d0 001090E5 		ldr		r1, [r0]					@ load stored value
+ 481 02d4 020111E3 		tst		r1, #BUTTON_PIN			@ check if that value indicates that the button was pressed
+ 482 02d8 C1FFFF0A 		beq		backtowait				@ if not, leave
+ 483 02dc 001080E5 		str		r1, [r0]					@ write back to turn off interrupt request
+ 484 02e0 6C019FE5 		ldr		r0, =BUTTON_PRESS_COUNT		@ load address of button press counter variable
+ 485 02e4 001090E5 		ldr		r1, [r0]					@ get variable store value
+ 486 02e8 011081E2 		add		r1, r1, #1				@ increment that value to show the total number of times the 
+ 487              										@ button was pressed
+ 488 02ec 001080E5 		str		r1, [r0]					@ store that value back in button press count variable
+ 489 02f0 60019FE5 		ldr		r0, =NO_PRESS_COUNT			@ load no press counter
+ 490 02f4 0010A0E3 		mov		r1, #0x00					@ load value to reset counter b/c button was pressed
+ 491 02f8 001080E5 		str 		r1, [r0]					@ store that value
+ 492 02fc B8FFFFEA 		b		backtowait
+ 493              	@=====================================================
+ 494              	
+ 495              	
+ 496              	@=====================================================
+ 497              	@	TIMER_SVC
+ 498              	@=====================================================
+ 499              	timer_svc:
+ 500 0300 54019FE5 		ldr		r0, =T5_IRQSTATUS			@ load TIMER5_IRQSTATUS
+ 501 0304 001090E5 		ldr		r1, [R0]					@ load value from TIMER5_IRQSTATUS
+ 502 0308 020011E3 		tst		r1, #0x02					@ check to see if interrupt was from timer5
+ 503 030c 2700000A 		beq		leave_timer_svc				@ if it was not, go to beat procedure
+ 504              	bintoascii:
+ 505 0310 3C119FE5 		ldr		r1, =BUTTON_PRESS_COUNT		@ load current value address
+ 506 0314 000091E5 		ldr		r0,[r1]					@ load current value to be converted
+ 507 0318 0050A0E1 		cpy		r5, r0					@ copy button press value for later comparison
+ 508 031c 0001A0E1 		mov		r0, r0, lsl #2				@ store number to be converted in r0, multiply button 
+ 509              										@ count in r0 that is ready to be converted by 4 so 
+ 510              										@ that instead of beats/quarter second we have bps
+ 511 0320 0020A0E3 		mov		r2, #0x00					@ load value to reset button count
+ 512 0324 002081E5 		str		r2, [r1]					@ store reset button count back in variable
+ 513 0328 0010A0E3 		mov		r1, #0x00					@ start counter to hold BCD of hundreds place
+ARM GAS  ../part4compiled.s 			page 10
+
+
+ 514 032c 2C219FE5 		ldr		r2, =MESSAGE				@ load ARRAY address
+ 515 0330 1230A0E3 		ldr		r3, =middle_of_message_pointer @ load address that has offset
+ 516 0334 032082E0 		add		r2, r2, r3				@ move meesage pointer to point into empty spac
+ 517              	loopBTA100:
+ 518              	@ convert hundreds place to BCD by successive subtraction
+ 519 0338 630050E3 		cmp		r0, #0x63					@ check to see if there are still 100s to be subtracted off
+ 520 033c 020000DA 		ble		finishBTA100				@ if not go to finishBTA100
+ 521 0340 640050E2 		subs		r0, r0, #0x64				@ subtract 100 from value to convert
+ 522 0344 011081E2 		add		r1, r1, #0x1				@ increment 100s BCD counter
+ 523 0348 FAFFFFEA 		b		loopBTA100				@ go back to top of loop
+ 524              	finishBTA100:
+ 525              	@ convert hundreds from BCD to Ascii
+ 526 034c 301081E2 		add		r1, r1, #0x30				@ convert 100s BCD to Ascii
+ 527 0350 0010C2E5 		strb		r1, [r2]				@ store in corrent spot in array
+ 528 0354 011021E0 		eor		r1, r1, r1				@ clear register to start counter to hold BCD of tens place
+ 529              	loopBTA10:
+ 530              	@ convert hundreds place to BCD by successive subtraction
+ 531 0358 090050E3 		cmp		r0, #0x9					@ check to see if there are still 10s to be subtracted off
+ 532 035c 020000DA 		ble		finishBTAConversion			@ if not go to finishBTA10
+ 533 0360 0A0050E2 		subs		r0, r0, #0xA				@ subtract 10 from value to convert
+ 534 0364 011081E2 		add		r1, r1, #0x1				@ increment 10s BCD counter
+ 535 0368 FAFFFFEA 		b		loopBTA10					@ go back to top of loop
+ 536              	finishBTAConversion:
+ 537              	@
+ 538 036c 301081E2 		add		r1, r1, #0x30				@ convert 10s BCD to Ascii
+ 539 0370 0110C2E5 		strb	r1, [r2, #1]				@ store in corrent spot in array
+ 540 0374 300080E2 		add		r0, r0, #0x30				@ convert 1s BCD to Ascii
+ 541 0378 0200C2E5 		strb	r0, [r2, #2]				@ store in corrent spot in array
+ 542              	endBTA:
+ 543              	@
+ 544 037c 000055E3 		cmp	 	r5, #0x00
+ 545 0380 D0009F05 		ldreq	r0, =NO_PRESS_COUNT			@ get address of no press count
+ 546 0384 00109005 		ldreq	r1, [r0]					@ get number of times timer went off without a button press
+ 547 0388 01108102 		addeq	r1, r1, #1				@ increment that value
+ 548 038c 00108005 		streq	r1, [r0]					@ put back in memory
+ 549 0390 040051E3 		cmp		r1, #4					@ check to see if its been 4 time slice since a button was pressed
+ 550 0394 C8109FD5 		ldrle	r1, =NO_SONG				@ if yes then load address of no song message 
+ 551 0398 C0109FC5 		ldrgt	r1, =MESSAGE				@ if not then load address of message
+ 552 039c A4009FE5 		ldr		r0, =messagetoplayaddress	@ load address of place to store address of message to play
+ 553 03a0 001080E5 		str		r1, [r0]					@ store that address
+ 554              	@
+ 555 03a4 50009FE5 		ldr		r0, =U4_IER				@ turn on interrupts for uart4
+ 556 03a8 0A10A0E3 		mov		r1, #0x0A					@ load control word to enable thr and CTSn interrupts
+ 557 03ac 001080E5 		str		r1, [r0]					@ write to enable u4 interrupts 
+ 558              	leave_timer_svc:
+ 559 03b0 A4009FE5 		ldr		r0, =T5_IRQSTATUS			@ load address of timer 5 irq status register
+ 560 03b4 0210A0E3 		mov		r1, #RESET				@ load value to reset timer5 irq to allow new timer irq generation
+ 561 03b8 001080E5 		str		r1, [r0]					@ write to reset timer5 interrupt
+ 562 03bc 88FFFFEA 		b		backtowait				@ return to idle loop
+ 563              	@=====================================================
+ 564              		
+ 565              	.data
+ 566 0000 00000000 	NO_PRESS_COUNT:	.word 0x0000
+ 567 0004 00000000 	BUTTON_PRESS_COUNT:	.word 0x0000
+ 568 0008 00000000 	char_pointer: 		.word 0x0000
+ 569 000c 00000000 	messagetoplayaddress: .word 0x00000000
+ 570              	
+ARM GAS  ../part4compiled.s 			page 11
+
+
+ 571              	.align 4
+ 572              	STACK_SVC:
+ 573              			.rept 1024
+ 574              			.word 0x0000
+ 575 0010 00000000 			.endr
+ 575      00000000 
+ 575      00000000 
+ 575      00000000 
+ 575      00000000 
+ 576              			
+ 577              	.align 4
+ 578              	STACK_IRQ:
+ 579              			.rept 1024
+ 580              			.word 0x0000
+ 581 1010 00000000 			.endr
+ 581      00000000 
+ 581      00000000 
+ 581      00000000 
+ 581      00000000 
+ 582              			
+ 583              	.align 4	
+ 584              	MESSAGE:
+ 585 2010 01       	.byte 0x01
+ 586 2011 356F     	.ascii "5o"
+ 587 2013 736F6E67 	.ascii "song tempo is         beats per minute"
+ 587      2074656D 
+ 587      706F2069 
+ 587      73202020 
+ 587      20202020 
+ 588 2039 0D       	.byte 0x0D
+ 589              	
+ 590 203a 00000000 	.align 4
+ 590      0000
+ 591              	NO_SONG:
+ 592 2040 01       	.byte 0x01
+ 593 2041 356F     	.ascii "5o"
+ 594 2043 6E6F2073 	.ascii "no song detected                      "
+ 594      6F6E6720 
+ 594      64657465 
+ 594      63746564 
+ 594      20202020 
+ 595 2069 0D       	.byte 0x0D
+ 596              	
+ 597 206a 00000000 	.END...
+ 597      0000
+ARM GAS  ../part4compiled.s 			page 12
+
+
+DEFINED SYMBOLS
+  ../part4compiled.s:223    .text:00000000 _start
+  ../part4compiled.s:372    .text:000001b0 _irq_handler
+  ../part4compiled.s:157    *ABS*:44e00078 CMP_U4_CLKCTRL
+  ../part4compiled.s:158    *ABS*:44e000ac CMP_GPIO1_CLKCTRL
+  ../part4compiled.s:159    *ABS*:44e000ec CMP_T5_CLKCTRL
+  ../part4compiled.s:160    *ABS*:44e00518 PRCMCLKSEL_T5
+  ../part4compiled.s:162    *ABS*:48200010 INTC_SYSCONFIG
+  ../part4compiled.s:163    *ABS*:482000a8 INTC_MIR1_CLEAR
+  ../part4compiled.s:164    *ABS*:00002000 INTC_U4_UNMASK
+  ../part4compiled.s:165    *ABS*:482000c8 INTC_MIR2_CLEAR
+  ../part4compiled.s:166    *ABS*:20000000 INTC_T5_UNMASKWORD
+  ../part4compiled.s:167    *ABS*:482000e8 INTC_MIR3_CLEAR
+  ../part4compiled.s:168    *ABS*:00000004 INTC_GPIO1_UNMASK
+  ../part4compiled.s:169    *ABS*:482000b8 INTC_PENDING_IRQ1
+  ../part4compiled.s:170    *ABS*:482000f8 INTC_PENDING_IRQ3
+  ../part4compiled.s:171    *ABS*:482000d8 INTC_PENDING_IRQ2
+  ../part4compiled.s:172    *ABS*:48200048 INTC_CONTROL
+  ../part4compiled.s:173    *ABS*:00000001 INTC_CTRL_RESET
+  ../part4compiled.s:175    *ABS*:4804c14c GPIO1_FALLINGDETECT
+  ../part4compiled.s:176    *ABS*:80000000 BUTTON_PIN
+  ../part4compiled.s:177    *ABS*:4804c034 GPIO1_IRQSTATUSSET
+  ../part4compiled.s:178    *ABS*:4804c010 GPIO1_SYSCONFIG
+  ../part4compiled.s:179    *ABS*:4804c02c GPIO1_IRQSTATUS
+  ../part4compiled.s:181    *ABS*:48046010 T5_RESET
+  ../part4compiled.s:182    *ABS*:4804602c T5_IRQES
+  ../part4compiled.s:183    *ABS*:48046040 T5_TCRR
+  ../part4compiled.s:184    *ABS*:4804603c T5_TLDR
+  ../part4compiled.s:185    *ABS*:48046038 T5_TCLR
+  ../part4compiled.s:186    *ABS*:48046028 T5_IRQSTATUS
+  ../part4compiled.s:187    *ABS*:00000001 T5_CLKRESETVAL
+  ../part4compiled.s:188    *ABS*:00000001 T5_STARTVAL
+  ../part4compiled.s:190    *ABS*:44e10870 U4_RXD
+  ../part4compiled.s:191    *ABS*:44e10874 U4_TXD
+  ../part4compiled.s:192    *ABS*:44e108d0 U4_CTSn
+  ../part4compiled.s:193    *ABS*:44e108d4 U4_RTSn
+  ../part4compiled.s:194    *ABS*:00000006 MODE6
+  ../part4compiled.s:195    *ABS*:481a800c U4_LCR
+  ../part4compiled.s:196    *ABS*:00000083 CONFIG_MODEA
+  ../part4compiled.s:197    *ABS*:00000003 OP_MODE
+  ../part4compiled.s:198    *ABS*:481a8004 U4_DHL
+  ../part4compiled.s:199    *ABS*:00000000 DHL_WORD
+  ../part4compiled.s:200    *ABS*:481a8000 U4_DLL
+  ../part4compiled.s:201    *ABS*:0000001a DLL_WORD
+  ../part4compiled.s:202    *ABS*:481a8020 MDR1
+  ../part4compiled.s:203    *ABS*:00000000 MDR1_WORD
+  ../part4compiled.s:204    *ABS*:481a8004 U4_IER
+  ../part4compiled.s:205    *ABS*:0000000a IER_U4_WORD
+  ../part4compiled.s:206    *ABS*:481a8008 U4_FCR
+  ../part4compiled.s:207    *ABS*:00000006 U4_FCR_WORD
+  ../part4compiled.s:208    *ABS*:481a8008 U4_IIR
+  ../part4compiled.s:209    *ABS*:481a8000 U4_RHR
+  ../part4compiled.s:210    *ABS*:481a8000 U4_THR
+  ../part4compiled.s:211    *ABS*:481a8018 U4_MSR
+  ../part4compiled.s:212    *ABS*:481a8014 U4_LSR
+  ../part4compiled.s:213    *ABS*:481a8040 U4_SCR
+  ../part4compiled.s:215    *ABS*:fff8acff FIFTEENSEC
+ARM GAS  ../part4compiled.s 			page 13
+
+
+  ../part4compiled.s:216    *ABS*:00000002 RESET
+  ../part4compiled.s:217    *ABS*:0000002a message_length
+  ../part4compiled.s:218    *ABS*:00000012 middle_of_message_pointer
+  ../part4compiled.s:572    .data:00000010 STACK_SVC
+  ../part4compiled.s:225    .text:00000000 $a
+  ../part4compiled.s:578    .data:00001010 STACK_IRQ
+  ../part4compiled.s:364    .text:000001a8 idleloop
+  ../part4compiled.s:399    .text:000001f8 talker_svc
+  ../part4compiled.s:499    .text:00000300 timer_svc
+  ../part4compiled.s:478    .text:000002cc button_svc
+  ../part4compiled.s:387    .text:000001e4 backtowait
+  ../part4compiled.s:416    .text:0000022c clearedtosend
+  ../part4compiled.s:441    .text:00000274 end_talker_svc
+  ../part4compiled.s:569    .data:0000000c messagetoplayaddress
+  ../part4compiled.s:568    .data:00000008 char_pointer
+  ../part4compiled.s:447    .text:00000284 reset_section
+  ../part4compiled.s:567    .data:00000004 BUTTON_PRESS_COUNT
+  ../part4compiled.s:566    .data:00000000 NO_PRESS_COUNT
+  ../part4compiled.s:558    .text:000003b0 leave_timer_svc
+  ../part4compiled.s:504    .text:00000310 bintoascii
+  ../part4compiled.s:584    .data:00002010 MESSAGE
+  ../part4compiled.s:517    .text:00000338 loopBTA100
+  ../part4compiled.s:524    .text:0000034c finishBTA100
+  ../part4compiled.s:529    .text:00000358 loopBTA10
+  ../part4compiled.s:536    .text:0000036c finishBTAConversion
+  ../part4compiled.s:542    .text:0000037c endBTA
+  ../part4compiled.s:591    .data:00002040 NO_SONG
+  ../part4compiled.s:571    .data:00000010 $d
+  ../part4compiled.s:565    .text:000003c0 $d
+                   .debug_aranges:0000000c $d
+
+NO UNDEFINED SYMBOLS

@@ -1,0 +1,173 @@
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+SRAM             0x402f0400         0x0000fc00
+L3OCMC0          0x40300000         0x00010000
+M3SHUMEM         0x44d00000         0x00004000
+M3SHDMEM         0x44d80000         0x00002000
+DDR0             0x80000000         0x40000000
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+                0x00018000                STACKSIZE = 0x18000
+                0x00000400                HEAPSIZE = 0x400
+LOAD ./part4compiled.o
+LOAD ./startup_ARMCA8.o
+
+.rsthand        0x80000000       0x70
+                0x80000000                . = ALIGN (0x10000)
+ *(.isr_vector)
+ .isr_vector    0x80000000       0x50 ./startup_ARMCA8.o
+                0x80000000                __isr_vector
+                0x8000004e                DEF_IRQHandler
+ *startup_ARMCA8.o(.text)
+ .text          0x80000050       0x20 ./startup_ARMCA8.o
+                0x80000050                Entry
+                0x80000070                . = ALIGN (0x4)
+
+.text           0x80000070      0x468
+ *(.text*)
+ .text          0x80000070      0x468 ./part4compiled.o
+                0x80000070                _start
+                0x80000220                _irq_handler
+ *(.init)
+ *(.fini)
+ *crtbegin.o(.ctors)
+ *crtbegin?.o(.ctors)
+ *(EXCLUDE_FILE(*crtend.o *crtend?.o) .ctors)
+ *(SORT(.ctors.*))
+ *(.ctors)
+ *crtbegin.o(.dtors)
+ *crtbegin?.o(.dtors)
+ *(EXCLUDE_FILE(*crtend.o *crtend?.o) .dtors)
+ *(SORT(.dtors.*))
+ *(.dtors)
+ *(.rodata*)
+ *(.eh_frame*)
+
+.glue_7         0x800004d8        0x0
+ .glue_7        0x00000000        0x0 linker stubs
+
+.glue_7t        0x800004d8        0x0
+ .glue_7t       0x00000000        0x0 linker stubs
+
+.vfp11_veneer   0x800004d8        0x0
+ .vfp11_veneer  0x00000000        0x0 linker stubs
+
+.v4_bx          0x800004d8        0x0
+ .v4_bx         0x00000000        0x0 linker stubs
+
+.iplt           0x800004d8        0x0
+ .iplt          0x00000000        0x0 ./part4compiled.o
+
+.rel.dyn        0x800004d8        0x0
+ .rel.iplt      0x00000000        0x0 ./part4compiled.o
+
+.ARM.extab
+ *(.ARM.extab* .gnu.linkonce.armextab.*)
+                0x800004d8                __exidx_start = .
+
+.ARM.exidx
+ *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+                0x800004d8                __exidx_end = .
+
+.data           0x800004e0     0x2070
+                0x800004e0                . = ALIGN (0x4)
+                0x800004e0                __data_start__ = .
+ *(vtable)
+ *(.data*)
+ .data          0x800004e0     0x2070 ./part4compiled.o
+ .data          0x80002550        0x0 ./startup_ARMCA8.o
+                0x80002550                . = ALIGN (0x4)
+                0x80002550                PROVIDE (__preinit_array_start, .)
+ *(.preinit_array)
+                0x80002550                PROVIDE (__preinit_array_end, .)
+                0x80002550                . = ALIGN (0x4)
+                0x80002550                PROVIDE (__init_array_start, .)
+ *(SORT(.init_array.*))
+ *(.init_array)
+                0x80002550                PROVIDE (__init_array_end, .)
+                0x80002550                . = ALIGN (0x4)
+                0x80002550                PROVIDE (__fini_array_start, .)
+ *(SORT(.fini_array.*))
+ *(.fini_array)
+                0x80002550                PROVIDE (__fini_array_end, .)
+                0x80002550                . = ALIGN (0x4)
+                0x80002550                __data_end__ = .
+
+.igot.plt       0x80002550        0x0
+ .igot.plt      0x00000000        0x0 ./part4compiled.o
+
+.bss            0x80002550        0x0
+                0x80002550                . = ALIGN (0x4)
+                0x80002550                __bss_start__ = .
+ *(.bss*)
+ .bss           0x80002550        0x0 ./part4compiled.o
+ .bss           0x80002550        0x0 ./startup_ARMCA8.o
+ *(COMMON)
+                0x80002550                __bss_end__ = .
+
+.heap           0x80002550      0x400
+ FILL mask 0xdeadbeef
+                0x80002550                . = ALIGN (0x4)
+                0x80002550                __end__ = .
+                0x80002550                end = __end__
+                0x80002550                __HeapBase = __end__
+ *(.heap*)
+ .heap          0x80002550        0x0 ./startup_ARMCA8.o
+                0x80002950                . = (. + HEAPSIZE)
+ *fill*         0x80002550      0x400 deadbeef
+                0x80002950                __HeapLimit = .
+
+.stack          0x80002950    0x18000
+ FILL mask 0xbad0bad0
+                0x80002950                . = ALIGN (0x4)
+                0x80002950                __StackLimit = .
+ *(.stack*)
+ .stack         0x80002950        0x0 ./startup_ARMCA8.o
+                0x8001a950                . = (. + STACKSIZE)
+ *fill*         0x80002950    0x18000 bad0bad0
+                0x8001a950                __StackTop = .
+                0x8001a950                __StackBase = .
+                0x8001a950                PROVIDE (__stack, __StackTop)
+START GROUP
+LOAD c:/ti/ccsv6/tools/compiler/gcc-arm-none-eabi-4_7-2013q3/bin/../lib/gcc/arm-none-eabi/4.7.4/../../../../arm-none-eabi/lib\libc.a
+LOAD c:/ti/ccsv6/tools/compiler/gcc-arm-none-eabi-4_7-2013q3/bin/../lib/gcc/arm-none-eabi/4.7.4\libgcc.a
+LOAD c:/ti/ccsv6/tools/compiler/gcc-arm-none-eabi-4_7-2013q3/bin/../lib/gcc/arm-none-eabi/4.7.4/../../../../arm-none-eabi/lib\libnosys.a
+END GROUP
+START GROUP
+LOAD c:/ti/ccsv6/tools/compiler/gcc-arm-none-eabi-4_7-2013q3/bin/../lib/gcc/arm-none-eabi/4.7.4\libgcc.a
+LOAD c:/ti/ccsv6/tools/compiler/gcc-arm-none-eabi-4_7-2013q3/bin/../lib/gcc/arm-none-eabi/4.7.4/../../../../arm-none-eabi/lib\libg.a
+LOAD c:/ti/ccsv6/tools/compiler/gcc-arm-none-eabi-4_7-2013q3/bin/../lib/gcc/arm-none-eabi/4.7.4/../../../../arm-none-eabi/lib\libc.a
+END GROUP
+OUTPUT(TalkerBoardProject.out elf32-littlearm)
+
+.ARM.attributes
+                0x00000000       0x1f
+ .ARM.attributes
+                0x00000000       0x1f ./part4compiled.o
+ .ARM.attributes
+                0x0000001f       0x1f ./startup_ARMCA8.o
+
+.debug_line     0x00000000      0x1ea
+ .debug_line    0x00000000      0x179 ./part4compiled.o
+ .debug_line    0x00000179       0x71 ./startup_ARMCA8.o
+
+.debug_info     0x00000000       0xd3
+ .debug_info    0x00000000       0x6b ./part4compiled.o
+ .debug_info    0x0000006b       0x68 ./startup_ARMCA8.o
+
+.debug_abbrev   0x00000000       0x26
+ .debug_abbrev  0x00000000       0x14 ./part4compiled.o
+ .debug_abbrev  0x00000014       0x12 ./startup_ARMCA8.o
+
+.debug_aranges  0x00000000       0x48
+ .debug_aranges
+                0x00000000       0x20 ./part4compiled.o
+ .debug_aranges
+                0x00000020       0x28 ./startup_ARMCA8.o
+
+.debug_ranges   0x00000000       0x20
+ .debug_ranges  0x00000000       0x20 ./startup_ARMCA8.o
